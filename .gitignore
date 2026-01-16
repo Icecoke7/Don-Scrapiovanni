@@ -1,0 +1,24 @@
+# Ignore build and IDE files
+**/*/bin
+**/*/.vscode
+
+/**/.idea/*
+/**/.vscode/*
+
+**/*/local.settings.json
+
+.env
+*.zip
+/infra/.terraform/
+/infra/.terraform.lock.hcl
+/infra/scripts
+/infra/env.sh
+
+.pytest_cache
+__pycache__
+
+# Local-only scrapers (not published to GitHub)
+scraper/scraper_bwsg.py
+scraper/scraper_wbv_gpa.py
+scraper/scraper_oevw.py
+scraper/scraper_wohnticket.py
