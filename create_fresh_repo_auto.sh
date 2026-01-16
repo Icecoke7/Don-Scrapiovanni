@@ -49,7 +49,7 @@ echo ""
 
 # Create initial commit
 echo "Step 5: Creating initial commit..."
-git commit -m "Initial commit - Clean repository without gewoscout references"
+git commit -m "Initial commit - Clean repository"
 echo "✅ Initial commit created"
 echo ""
 

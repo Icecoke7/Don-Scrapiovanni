@@ -45,7 +45,7 @@ git branch -M main
 git add .
 
 # Create initial commit
-git commit -m "Initial commit - Clean repository without gewoscout references"
+git commit -m "Initial commit - Clean repository"
 
 echo "✅ Fresh repository created"
 
