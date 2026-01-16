@@ -22,3 +22,13 @@ scraper/scraper_bwsg.py
 scraper/scraper_wbv_gpa.py
 scraper/scraper_oevw.py
 scraper/scraper_wohnticket.py
+
+# Local-only documentation and scripts (not published to GitHub)
+CLEANUP_DOCKER_IMAGES.md
+LOCAL_SETUP_CHECK.md
+RECOVER_OTHER_SCRAPERS.md
+REMOVE_FILES_FROM_HISTORY.md
+create_fresh_repo.sh
+create_fresh_repo_auto.sh
+remove_files_from_history.sh
+test_local_setup.sh
