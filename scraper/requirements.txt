@@ -7,3 +7,5 @@ pytest
 requests
 beautifulsoup4
 pytz
+selenium
+webdriver-manager

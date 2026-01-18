@@ -1,8 +1,15 @@
 FROM python:3.11-slim
 
-# Install Azure Functions Core Tools dependencies
+# Install Azure Functions Core Tools dependencies and Chrome for Selenium
 RUN apt-get update && apt-get install -y \
     curl unzip libicu-dev gnupg \
+    wget \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Chrome/Chromium for Selenium
+RUN apt-get update && apt-get install -y \
+    chromium \
+    chromium-driver \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (required for Azure Functions Core Tools)
