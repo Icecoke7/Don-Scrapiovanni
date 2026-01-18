@@ -5,20 +5,24 @@ Monitor Wiener Staatsoper website for ticket availability and get Telegram notif
 ## Features
 
 - 🎭 Monitors Wiener Staatsoper ticket availability
-- ⏰ Runs automatically once daily at 09:30 AM Austria time (CET/CEST)
+- ⏰ Runs automatically once daily at 09:30 AM Austria time (CET/CEST) with random ±2 minute offset
 - 🔔 Sends Telegram notifications when tickets are available
 - 🌍 Timezone-aware (handles CET/CEST transitions automatically)
 - 🎯 Checks for tomorrow's show specifically
+- 🎫 Shows available ticket categories in notifications
+- 🤖 Uses Selenium for dynamic content loading
 
 ## How It Works
 
-1. **Schedule**: The scraper runs every minute (timer trigger), but only executes at 09:30 AM Austria time
+1. **Schedule**: The scraper runs once daily at 09:30 AM Austria time (with a random 0-4 minute delay)
 2. **Target**: Checks `https://tickets.wiener-staatsoper.at/webshop/webticket/eventlist`
 3. **Logic**:
-   - Fetches the event list page
+   - Uses Selenium to load the page and handle JavaScript-rendered content
+   - Handles inactivity pages and cookie consent automatically
    - Finds the show scheduled for tomorrow
-   - Checks if tickets are available (looks for "Restkarten" button or "Ausverkauft" indicator)
-   - Sends Telegram notification if tickets are available
+   - Checks if tickets are available (supports both German and English website versions)
+   - Navigates to the seat selection page to determine available categories
+   - Sends Telegram notification with event details and available categories
 
 ## Prerequisites
 
@@ -73,7 +77,7 @@ docker compose build
 docker compose up -d
 
 # Check logs
-docker logs staatsoper-scraper -f | grep -i staatsoper
+docker logs staatsoper-scraper -f
 ```
 
 ### 4. Verify It's Working
@@ -81,15 +85,17 @@ docker logs staatsoper-scraper -f | grep -i staatsoper
 The scraper will automatically run at 09:30 AM Austria time. To verify:
 
 ```bash
-# Check logs for Staatsoper scraper activity
-docker logs staatsoper-scraper --tail 100 | grep -i staatsoper
+# Check logs for scraper activity
+docker logs staatsoper-scraper --tail 100
 ```
 
 You should see messages like:
+
 ```
-Staatsoper scraper triggered at 2026-01-18 09:30:00 CET+01:00
-Staatsoper: Fetching URL: https://tickets.wiener-staatsoper.at/webshop/webticket/eventlist
-Staatsoper: Found tomorrow's show: Le Nozze di Figaro
+Starting Wiener Staatsoper Scraper...
+Looking for tickets for: 19.01.2026
+Found tickets: IDOMENEO at 18:30
+Notification sent!
 ```
 
 ## Notification Format
@@ -97,29 +103,38 @@ Staatsoper: Found tomorrow's show: Le Nozze di Figaro
 When tickets are available, you'll receive a Telegram message like:
 
 ```
-🎭 Wiener Staatsoper - Tickets Available!
+🎫 Tickets Available for Tomorrow (19.01.2026)!
 
-Le Nozze di Figaro
-👤 Wolfgang Amadeus Mozart
-📅 18.01.2026 19:00
+• IDOMENEO
+  📅 Mo. 19.01.2026 at 18:30
+  Status: Tickets
+  Available Category: 2
+  Buy Tickets Here
+```
 
-🎫 Restkarten verfügbar!
+If multiple categories are available:
 
-View Events
+```
+🎫 Tickets Available for Tomorrow (19.01.2026)!
+
+• IDOMENEO
+  📅 Mo. 19.01.2026 at 18:30
+  Status: Tickets
+  Available Categories: 1, 2, 5
+  Buy Tickets Here
 ```
 
 ## Configuration
 
 ### Schedule
 
-The scraper runs at **09:30 AM Austria time** (Europe/Vienna timezone). This is hardcoded in the scraper to avoid overloading the website.
+The scraper runs at **09:30 AM Austria time** (Europe/Vienna timezone) with a random 0-4 minute delay to avoid running exactly at the same time every day.
 
 To change the schedule, edit `scraper/scraper_staatsoper.py`:
 
 ```python
-# Line ~296: Change the hour and minute
-if now_austria.hour != 9 or now_austria.minute != 30:
-    return
+# Line ~181: Change the cron schedule
+@bp.timer_trigger(schedule="0 30 9 * * *", arg_name="mytimer", run_on_startup=False)
 ```
 
 ### Timezone
@@ -130,15 +145,16 @@ The scraper uses `Europe/Vienna` timezone, which automatically handles:
 
 ## How Ticket Availability is Detected
 
-The scraper detects ticket availability by parsing the HTML:
+The scraper uses Selenium to handle JavaScript-rendered content and detects ticket availability by:
 
-**Available Tickets:**
-- Button with class `btn` containing text "Restkarten"
-- Example: `<a href="/webshop/webticket/selectseat?eventId=11553" class="btn btn-primary full-width">Restkarten</a>`
-
-**Sold Out:**
-- Div with class `text-small` containing "Ausverkauft"
-- Example: `<div class="text-small"><span>Ausverkauft</span></div>`
+1. **Loading the page** with Selenium (headless Chrome)
+2. **Handling inactivity pages** - automatically clicks "Weiter" if needed
+3. **Accepting cookie consent** - handles ccm19 cookie banners
+4. **Finding events** - parses the event list for tomorrow's date
+5. **Checking availability** - looks for:
+   - German: "Weiterleitung zur Platzauswahl", "Karten", "Restkarten"
+   - English: "Go to seat selection", "Tickets"
+6. **Determining categories** - navigates to the seat selection page to check which categories (Kategorie 1, 2, etc.) are available
 
 ## Troubleshooting
 
@@ -152,11 +168,8 @@ docker exec staatsoper-scraper date
 
 **Check logs:**
 ```bash
-docker logs staatsoper-scraper | grep -i staatsoper
+docker logs staatsoper-scraper --tail 100
 ```
-
-**Verify timer trigger:**
-The timer runs every minute but only executes at 09:30. You should see log entries every minute, but the scraper logic only runs at 09:30.
 
 ### No Notifications Received
 
@@ -177,15 +190,15 @@ The timer runs every minute but only executes at 09:30. You should see log entri
 
 4. **Check logs for errors:**
    ```bash
-   docker logs staatsoper-scraper | grep -i "telegram\|staatsoper" | tail -20
+   docker logs staatsoper-scraper | tail -50
    ```
 
-### HTML Structure Changed
+### Website Structure Changed
 
-If the Wiener Staatsoper website changes its HTML structure, you may need to update the selectors in `scraper/scraper_staatsoper.py`:
-
-- `extract_show_info()` - Extracts show details from HTML (lines ~90-194)
-- `fetch_staatsoper_events()` - Finds event containers on the page (lines ~196-259)
+If the Wiener Staatsoper website changes its HTML structure, you may need to update the selectors in `scraper/scraper_staatsoper.py`. The scraper uses:
+- BeautifulSoup for HTML parsing
+- Selenium for dynamic content loading
+- CSS selectors and XPath for element finding
 
 **To update selectors:**
 
@@ -193,22 +206,25 @@ If the Wiener Staatsoper website changes its HTML structure, you may need to upd
 2. Open Developer Tools (F12)
 3. Inspect the HTML structure
 4. Update the selectors in the scraper code
-5. Rebuild: `docker compose build && docker compose restart staatsoper-scraper`
+5. Rebuild: `docker compose build --no-cache && docker compose restart staatsoper-scraper`
 
 ### No Events Found
 
-If you see "Staatsoper: No events found on the page":
+If you see "No events found":
 
 1. **Check if the website is accessible:**
    ```bash
    curl -I https://tickets.wiener-staatsoper.at/webshop/webticket/eventlist
    ```
 
-2. **Check for HTML structure changes** (see above)
-
-3. **Check logs for parsing errors:**
+2. **Check logs for parsing errors:**
    ```bash
-   docker logs staatsoper-scraper | grep -i "staatsoper.*error"
+   docker logs staatsoper-scraper | grep -i error
+   ```
+
+3. **Verify Selenium is working:**
+   ```bash
+   docker logs staatsoper-scraper | grep -i selenium
    ```
 
 ## Development
@@ -221,29 +237,33 @@ If you see "Staatsoper: No events found on the page":
    pip install -r requirements.txt
    ```
 
-2. Set environment variables:
+2. Install Chrome/Chromium and chromedriver:
+   ```bash
+   # On Ubuntu/Debian
+   sudo apt-get install chromium chromium-driver
+   ```
+
+3. Set environment variables:
    ```bash
    export TELEGRAM_TOKEN=your_token
    export TELEGRAM_CHAT_ID=your_chat_id
    ```
 
-3. Run Azure Functions locally:
+4. Run Azure Functions locally:
    ```bash
    func start
    ```
 
 ### Testing
 
-To test the scraper manually, you can modify the schedule temporarily:
+To test the scraper manually, you can temporarily change the schedule:
 
 ```python
-# In scraper_staatsoper.py, temporarily change:
-if now_austria.hour != 9 or now_austria.minute != 30:
-    return
+# In scraper_staatsoper.py, change:
+@bp.timer_trigger(schedule="0 30 9 * * *", ...)
 
-# To:
-if False:  # Always run for testing
-    return
+# To (runs every minute for testing):
+@bp.timer_trigger(schedule="0 * * * * *", ...)
 ```
 
 Then rebuild and restart:
@@ -261,11 +281,22 @@ Don-Scrapiovanni/
 │   ├── function_app.py              # Registers the scraper
 │   ├── requirements.txt             # Python dependencies
 │   ├── Dockerfile                    # Docker build configuration
-│   └── host.json                     # Azure Functions configuration
+│   ├── host.json                     # Azure Functions configuration
+│   └── .dockerignore                 # Docker ignore file
 ├── docker-compose.yml                # Docker Compose configuration
 ├── .env.example                      # Environment variables template
+├── .gitignore                        # Git ignore file
 └── README.md                         # This file
 ```
+
+## Dependencies
+
+- **azure-functions**: Azure Functions runtime
+- **requests**: HTTP requests
+- **beautifulsoup4**: HTML parsing
+- **pytz**: Timezone handling
+- **selenium**: Browser automation for dynamic content
+- **webdriver-manager**: Chrome driver management (optional, uses system chromium)
 
 ## Notes
 
@@ -273,7 +304,8 @@ Don-Scrapiovanni/
 - Notifications are only sent when tickets are **available** (not when sold out)
 - The scraper runs once per day to avoid overloading the website
 - Timezone handling is automatic (CET/CEST transitions)
-- The scraper uses a global variable to prevent duplicate runs in the same minute
+- Uses headless Chrome via Selenium to handle JavaScript-rendered content
+- Automatically handles inactivity pages and cookie consent
 
 ## License
 
@@ -288,12 +320,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 If you encounter issues:
 
 1. Check the troubleshooting section above
-2. Review the logs: `docker logs staatsoper-scraper | grep -i staatsoper`
+2. Review the logs: `docker logs staatsoper-scraper --tail 100`
 3. Verify your environment variables are set correctly
 4. Check if the website structure has changed
 
 ## Acknowledgments
 
 - Built for monitoring Wiener Staatsoper ticket availability
+- Uses Selenium for dynamic content handling
 - Uses BeautifulSoup for HTML parsing
 - Uses pytz for timezone handling
