@@ -5,7 +5,7 @@ Monitor Wiener Staatsoper website for ticket availability and get Telegram notif
 ## Features
 
 - 🎭 Monitors Wiener Staatsoper ticket availability
-- ⏰ Runs automatically once daily at 09:30 AM Austria time (CET/CEST) with random +4 minute offset
+- ⏰ Runs automatically once daily at 09:30 AM Austria time (CET/CEST) with random ~4 minute offset
 - 🔔 Sends Telegram notifications when tickets are available
 - 🌍 Timezone-aware (handles CET/CEST transitions automatically)
 - 🎯 Checks for tomorrow's show specifically
