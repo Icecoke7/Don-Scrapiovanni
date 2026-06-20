@@ -21,6 +21,9 @@ bp = func.Blueprint()
 
 # Wiener Staatsoper base URL
 STAATSOPER_URL = "https://tickets.wiener-staatsoper.at/webshop/webticket/eventlist"
+# Enter the shop via this URL first to establish a session; hitting the eventlist
+# directly on a fresh session triggers an "inactive session" error page.
+SHOP_URL = "https://tickets.wiener-staatsoper.at/webshop/webticket/shop"
 AUSTRIA_TZ = pytz.timezone("Europe/Vienna")
 
 def get_selenium_driver():
@@ -152,22 +155,22 @@ def staatsoper_scraper(mytimer: func.TimerRequest) -> None:
     driver = None
     try:
         driver = get_selenium_driver()
-        driver.get(STAATSOPER_URL)
-        time.sleep(3)
+        # Enter via /shop (NOT /eventlist directly). A fresh session hitting
+        # /eventlist shows "Sie waren laengere Zeit inaktiv / Es ist ein Fehler
+        # aufgetreten" and the list never renders. /shop establishes the session
+        # and the eventlist renders with all events. (Fixed 2026-06-20.)
+        driver.get(SHOP_URL)
+        time.sleep(5)
         
-        # Handle inactivity page
+        # Handle inactivity page (fallback). If a fresh session still shows the
+        # inactivity/error modal, clearing cookies + reloading /shop dismisses it.
         page_source = driver.page_source
-        if "Sie waren längere Zeit inaktiv" in page_source or "Reservierungsvorgang wurde beendet" in page_source:
-            logging.info("Inactivity page detected, clicking 'Weiter'...")
+        if "Sie waren längere Zeit inaktiv" in page_source or "Reservierungsvorgang wurde beendet" in page_source or "Es ist ein Fehler aufgetreten" in page_source:
+            logging.info("Inactivity/error page detected, restarting session via /shop...")
             try:
-                elements = driver.find_elements(By.CSS_SELECTOR, "a.btn.btn-default.full-width[href='/webshop/webticket/shop']")
-                if not elements:
-                    elements = driver.find_elements(By.XPATH, "//a[contains(text(), 'Weiter') and contains(@href, '/webshop/webticket/shop')]")
-                for element in elements:
-                    if element.is_displayed() and "Weiter" in element.text:
-                        element.click()
-                        time.sleep(5)
-                        break
+                driver.delete_all_cookies()
+                driver.get(SHOP_URL)
+                time.sleep(5)
             except Exception as e:
                 logging.warning(f"Could not click 'Weiter': {e}")
         
@@ -206,25 +209,18 @@ def staatsoper_scraper(mytimer: func.TimerRequest) -> None:
         
         time.sleep(3)
         
-        # Parse events
+        # Parse events. The page renders events as <div class="evt-event-list">
+        # blocks (id="eventKey:<ID>"), NOT inside <ul id="eventListUl"> anymore.
+        # (Fixed 2026-06-20 to match the current DOM.)
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        event_list_ul = soup.find("ul", id="eventListUl")
-        if not event_list_ul:
-            logging.warning("Event list not found")
-            return
-        
-        event_lis = event_list_ul.find_all("li", recursive=False)
-        if len(event_lis) == 0:
-            logging.warning("No events found")
+        event_blocks = soup.select("div.evt-event-list")
+        if not event_blocks:
+            logging.warning("Event list not found (no div.evt-event-list blocks)")
             return
         
         events_found = []
         
-        for li in event_lis:
-            event_div = li.find("div", class_=lambda x: x and "evt-event" in x if x else False)
-            if not event_div:
-                continue
-            
+        for event_div in event_blocks:
             title_elem = event_div.find("h2")
             title = title_elem.get_text(strip=True) if title_elem else "Unknown"
             
@@ -241,9 +237,11 @@ def staatsoper_scraper(mytimer: func.TimerRequest) -> None:
             if not event_dt or event_dt.date() != tomorrow:
                 continue
             
-            # Check for ticket availability
-            event_links = li.find_all("a", href=re.compile(r"eventId=\d+"))
+            # Check for ticket availability. A bookable event has a 'selectseat'
+            # link in its block; sold-out events have no such link.
+            event_links = event_div.find_all("a", href=re.compile(r"selectseat\?eventId=\d+|eventId=\d+"))
             if not event_links:
+                # No booking link in this block -> sold out / not bookable.
                 continue
             
             has_tickets = False
